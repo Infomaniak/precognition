@@ -168,6 +168,16 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
     }
 
     /**
+     * The validation paths exactly as they were given to `validate` and
+     * `touch`, with wildcard patterns kept intact.
+     *
+     * The "Precognition-Validate-Only" header is built from these instead of
+     * the expanded `touched` set, so the header stays constant-size
+     * regardless of the array length.
+     */
+    let validationPaths: Array<string> = []
+
+    /**
      * Validation errors state.
      */
     let errors: ValidationErrors = {}
@@ -294,16 +304,16 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
         }
 
         const only = Array.from(config.only ?? config.validate ?? touched)
-        const tracked = [...new Set(only.flatMap((name) => expandWildcardPaths(name, data)))]
+        const validateOnly = Array.from(config.only ?? config.validate ?? validationPaths)
 
         return {
             ...instanceConfig,
             ...merge({}, globalConfig, instanceConfig),
-            only,
+            only: validateOnly,
             timeout: config.timeout ?? 5000,
             onValidationError: (response, error) => {
                 [
-                    ...setValidated([...validated, ...tracked]),
+                    ...setValidated([...validated, ...only]),
                     ...setErrors(merge(omitByPattern({ ...errors }, only), response.data.errors)),
                 ].forEach((listener) => listener())
 
@@ -312,7 +322,7 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
                     : Promise.reject(error)
             },
             onSuccess: (response) => {
-                setValidated([...validated, ...tracked]).forEach((listener) => listener())
+                setValidated([...validated, ...only]).forEach((listener) => listener())
 
                 return config.onSuccess
                     ? config.onSuccess(response)
@@ -320,7 +330,7 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
             },
             onPrecognitionSuccess: (response) => {
                 [
-                    ...setValidated([...validated, ...tracked]),
+                    ...setValidated([...validated, ...only]),
                     ...setErrors(omitByPattern({ ...errors }, only)),
                 ].forEach((listener) => listener())
 
@@ -329,12 +339,12 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
                     : response
             },
             onBefore: () => {
-                // The touched set is serialized verbatim into the
-                // Precognition-Validate-Only header: keeping the original
-                // wildcard paths holds the header constant-size regardless of
-                // the array length (the server expands them). Per-field
-                // tracking uses the expanded concrete paths instead.
-                const expandedTouched = [...new Set(touched.flatMap((name) => expandWildcardPaths(name, data)))]
+                // Wildcards are expanded to concrete paths using the current
+                // form data so that each field is individually tracked.
+                const hasWildcards = touched.some((name) => name.includes('*'))
+                const expandedTouched = hasWildcards
+                    ? [...new Set(touched.flatMap((name) => expandWildcardPaths(name, data)))]
+                    : touched
 
                 if (config.onBeforeValidation && config.onBeforeValidation({ data, touched: expandedTouched }, { data: oldData, touched: oldTouched }) === false) {
                     return false
@@ -346,7 +356,11 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
                     return false
                 }
 
-                validatingTouched = expandedTouched
+                if (hasWildcards) {
+                    setTouched(expandedTouched).forEach((listener) => listener())
+                }
+
+                validatingTouched = touched
 
                 validatingData = data
 
@@ -380,6 +394,8 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
 
             setTouched([...touched, ...only]).forEach((listener) => listener())
 
+            validationPaths = [...new Set([...validationPaths, ...only])]
+
             validator(config ?? {})
 
             return
@@ -395,6 +411,8 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
 
         if (name.includes('*') || get(oldData, name) !== value) {
             setTouched([name, ...touched]).forEach((listener) => listener())
+
+            validationPaths = [...new Set([name, ...validationPaths])]
 
             validator(config ?? {})
         }
@@ -429,6 +447,8 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
 
             setTouched([...touched, ...inputs]).forEach((listener) => listener())
 
+            validationPaths = [...new Set([...validationPaths, ...inputs])]
+
             return form
         },
         validating: () => validating,
@@ -454,6 +474,8 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
         reset(...names) {
             if (names.length === 0) {
                 setTouched([]).forEach((listener) => listener())
+
+                validationPaths = []
             } else {
                 const newTouched = [...touched]
 
@@ -466,6 +488,8 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
                 })
 
                 setTouched(newTouched).forEach((listener) => listener())
+
+                validationPaths = validationPaths.filter((path) => ! names.includes(path))
             }
 
             return form

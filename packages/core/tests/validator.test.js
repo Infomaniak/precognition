@@ -946,7 +946,7 @@ describe('wildcard validation triggering', () => {
         await vi.advanceTimersByTimeAsync(1500)
     })
 
-    it('keeps wildcard paths in touched during validation', async () => {
+    it('expands wildcards in touched during validation', async () => {
         let config
         mockClient.mockImplementation((c) => {
             config = c
@@ -962,10 +962,10 @@ describe('wildcard validation triggering', () => {
 
         await vi.advanceTimersByTimeAsync(1500)
 
-        expect(validator.touched()).toEqual(['users.*.name'])
+        expect(validator.touched()).toEqual(['users.0.name', 'users.1.name'])
     })
 
-    it('keeps the wildcard path in touched when the array is empty', async () => {
+    it('expands wildcards to empty when array is empty', async () => {
         let config
         mockClient.mockImplementation((c) => {
             config = c
@@ -981,7 +981,7 @@ describe('wildcard validation triggering', () => {
 
         await vi.advanceTimersByTimeAsync(1500)
 
-        expect(validator.touched()).toEqual(['users.*.name'])
+        expect(validator.touched()).toEqual([])
     })
 
     it('mixes wildcard and non-wildcard paths correctly', async () => {
@@ -1000,7 +1000,7 @@ describe('wildcard validation triggering', () => {
 
         await vi.advanceTimersByTimeAsync(1500)
 
-        expect(validator.touched()).toEqual(['users.*.email', 'name'])
+        expect(validator.touched()).toEqual(['users.0.email', 'users.1.email', 'name'])
     })
 
     it('sends constant-size wildcard paths when validating without only after an array validation', async () => {
