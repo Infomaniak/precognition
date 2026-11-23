@@ -294,6 +294,7 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
         }
 
         const only = Array.from(config.only ?? config.validate ?? touched)
+        const tracked = [...new Set(only.flatMap((name) => expandWildcardPaths(name, data)))]
 
         return {
             ...instanceConfig,
@@ -302,7 +303,7 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
             timeout: config.timeout ?? 5000,
             onValidationError: (response, error) => {
                 [
-                    ...setValidated([...validated, ...only]),
+                    ...setValidated([...validated, ...tracked]),
                     ...setErrors(merge(omitByPattern({ ...errors }, only), response.data.errors)),
                 ].forEach((listener) => listener())
 
@@ -311,7 +312,7 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
                     : Promise.reject(error)
             },
             onSuccess: (response) => {
-                setValidated([...validated, ...only]).forEach((listener) => listener())
+                setValidated([...validated, ...tracked]).forEach((listener) => listener())
 
                 return config.onSuccess
                     ? config.onSuccess(response)
@@ -319,7 +320,7 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
             },
             onPrecognitionSuccess: (response) => {
                 [
-                    ...setValidated([...validated, ...only]),
+                    ...setValidated([...validated, ...tracked]),
                     ...setErrors(omitByPattern({ ...errors }, only)),
                 ].forEach((listener) => listener())
 
@@ -328,12 +329,12 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
                     : response
             },
             onBefore: () => {
-                // Wildcards are expanded to concrete paths using the current
-                // form data so that each field is individually tracked.
-                const hasWildcards = touched.some((name) => name.includes('*'))
-                const expandedTouched = hasWildcards
-                    ? [...new Set(touched.flatMap((name) => expandWildcardPaths(name, data)))]
-                    : touched
+                // The touched set is serialized verbatim into the
+                // Precognition-Validate-Only header: keeping the original
+                // wildcard paths holds the header constant-size regardless of
+                // the array length (the server expands them). Per-field
+                // tracking uses the expanded concrete paths instead.
+                const expandedTouched = [...new Set(touched.flatMap((name) => expandWildcardPaths(name, data)))]
 
                 if (config.onBeforeValidation && config.onBeforeValidation({ data, touched: expandedTouched }, { data: oldData, touched: oldTouched }) === false) {
                     return false
@@ -345,11 +346,7 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
                     return false
                 }
 
-                if (hasWildcards) {
-                    setTouched(expandedTouched).forEach((listener) => listener())
-                }
-
-                validatingTouched = touched
+                validatingTouched = expandedTouched
 
                 validatingData = data
 

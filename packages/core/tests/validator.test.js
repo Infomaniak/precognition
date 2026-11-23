@@ -946,7 +946,7 @@ describe('wildcard validation triggering', () => {
         await vi.advanceTimersByTimeAsync(1500)
     })
 
-    it('expands wildcards in touched during validation', async () => {
+    it('keeps wildcard paths in touched during validation', async () => {
         let config
         mockClient.mockImplementation((c) => {
             config = c
@@ -962,10 +962,10 @@ describe('wildcard validation triggering', () => {
 
         await vi.advanceTimersByTimeAsync(1500)
 
-        expect(validator.touched()).toEqual(['users.0.name', 'users.1.name'])
+        expect(validator.touched()).toEqual(['users.*.name'])
     })
 
-    it('expands wildcards to empty when array is empty', async () => {
+    it('keeps the wildcard path in touched when the array is empty', async () => {
         let config
         mockClient.mockImplementation((c) => {
             config = c
@@ -981,7 +981,7 @@ describe('wildcard validation triggering', () => {
 
         await vi.advanceTimersByTimeAsync(1500)
 
-        expect(validator.touched()).toEqual([])
+        expect(validator.touched()).toEqual(['users.*.name'])
     })
 
     it('mixes wildcard and non-wildcard paths correctly', async () => {
@@ -1000,7 +1000,31 @@ describe('wildcard validation triggering', () => {
 
         await vi.advanceTimersByTimeAsync(1500)
 
-        expect(validator.touched()).toEqual(['users.0.email', 'users.1.email', 'name'])
+        expect(validator.touched()).toEqual(['users.*.email', 'name'])
+    })
+
+    it('sends constant-size wildcard paths when validating without only after an array validation', async () => {
+        let config
+        mockClient.mockImplementation((c) => {
+            config = c
+            return Promise.resolve(precognitionSuccessResponse())
+        })
+
+        const data = {
+            title: '',
+            users: [{ path: 'a.txt' }, { path: 'b.txt' }, { path: 'c.txt' }],
+        }
+        const validator = createValidator((client) => client.post('/foo', data))
+
+        validator.validate({ only: ['users', 'users.*', 'users.*.path'] })
+        expect(config.headers['Precognition-Validate-Only']).toBe('users,users.*,users.*.path')
+
+        await vi.advanceTimersByTimeAsync(1500)
+
+        validator.validate('title', 'x')
+        await vi.advanceTimersByTimeAsync(1500)
+
+        expect(config.headers['Precognition-Validate-Only']).toBe('title,users,users.*,users.*.path')
     })
 })
 
