@@ -291,6 +291,44 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
     let validator = createValidator()
 
     /**
+     * Render the touched set for the "Precognition-Validate-Only" header.
+     *
+     * A wildcard pattern whose expansion is fully covered by the touched set
+     * is emitted once instead of its expanded paths, keeping the header
+     * constant-size. A partially covered pattern, after a single-item reset
+     * or when the data holds untouched entries, falls back to the touched
+     * concrete paths so resets and new items keep their expanded behavior.
+     */
+    const collapseTouchedPaths = (patterns: Array<string>, data: Record<string, unknown>): Array<string> => {
+        const wildcardPatterns = patterns.filter((pattern) => pattern.includes('*'))
+        const emitted = new Set<string>()
+        const paths: Array<string> = []
+
+        touched.forEach((path) => {
+            const matched = wildcardPatterns.filter((pattern) => keyMatchesPattern(path, pattern))
+
+            const collapsed = matched.find((pattern) => ! emitted.has(pattern)
+                && expandWildcardPaths(pattern, data).every((candidate) => touched.includes(candidate)))
+
+            if (collapsed !== undefined) {
+                emitted.add(collapsed)
+
+                paths.push(collapsed)
+
+                return
+            }
+
+            if (matched.some((pattern) => emitted.has(pattern))) {
+                return
+            }
+
+            paths.push(path)
+        })
+
+        return paths
+    }
+
+    /**
      * Resolve the configuration.
      */
     const resolveConfig = (
@@ -303,8 +341,9 @@ export const createValidator = (callback: ValidationCallback, initialData: Recor
             ...instanceConfig,
         }
 
-        const only = Array.from(config.only ?? config.validate ?? touched)
-        const validateOnly = Array.from(config.only ?? config.validate ?? validationPaths)
+        const given = config.only ?? config.validate
+        const only = Array.from(given ?? touched)
+        const validateOnly = given ? Array.from(given) : collapseTouchedPaths(validationPaths, data)
 
         return {
             ...instanceConfig,

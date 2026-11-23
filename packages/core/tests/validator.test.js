@@ -1026,6 +1026,52 @@ describe('wildcard validation triggering', () => {
 
         expect(config.headers['Precognition-Validate-Only']).toBe('title,users,users.*,users.*.path')
     })
+
+    it('excludes a reset item from the validate-only header', async () => {
+        let config
+        mockClient.mockImplementation((c) => {
+            config = c
+            return Promise.resolve(precognitionSuccessResponse())
+        })
+
+        const data = {
+            title: '',
+            users: [{ path: 'a.txt' }, { path: 'b.txt' }, { path: 'c.txt' }],
+        }
+        const validator = createValidator((client) => client.post('/foo', data))
+
+        validator.validate({ only: ['users', 'users.*', 'users.*.path'] })
+        await vi.advanceTimersByTimeAsync(1500)
+
+        validator.reset('users.0.path')
+        validator.validate('title', 'x')
+        await vi.advanceTimersByTimeAsync(1500)
+
+        expect(config.headers['Precognition-Validate-Only']).toBe('title,users,users.*,users.1.path,users.2.path')
+    })
+
+    it('collapses back to the wildcard pattern once a reset item is validated again', async () => {
+        let config
+        mockClient.mockImplementation((c) => {
+            config = c
+            return Promise.resolve(precognitionSuccessResponse())
+        })
+
+        const data = {
+            title: '',
+            users: [{ path: 'a.txt' }, { path: 'b.txt' }, { path: 'c.txt' }],
+        }
+        const validator = createValidator((client) => client.post('/foo', data))
+
+        validator.validate({ only: ['users', 'users.*', 'users.*.path'] })
+        await vi.advanceTimersByTimeAsync(1500)
+
+        validator.reset('users.0.path')
+        validator.validate('users.0.path', 'd.txt')
+        await vi.advanceTimersByTimeAsync(1500)
+
+        expect(config.headers['Precognition-Validate-Only']).toBe('users.*.path,users,users.*')
+    })
 })
 
 describe('wildcard error clearing', () => {
